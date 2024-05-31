@@ -14,12 +14,9 @@ def calc_dt(time, plot=False, verbose=0):
 
     Parameters
     ----------
-    time : numpy array
-        Array of time points.
-    plot : bool, optional
-        If True, plot a histogram of the time differences. Default is False.
-    verbose : int, optional
-        Verbosity level. If greater than 0, print the threshold and the average time step. Default is 0.
+    time : numpy array.       Array of time points.
+    plot : bool, optional.    If True, plot a histogram of the time differences. Default is False.
+    verbose : int, optional.  Verbosity level. If greater than 0, print the threshold and the average time step. Default is 0.
 
     Returns
     -------
@@ -158,7 +155,68 @@ def generate_data(dt=0.05, T_start=0, T_end=100, noise_level_1=0.2, noise_level_
     if verbose > 0:
         print('Created mock dataset at /mockdata.csv')
 
+def moving_average(data, time=None, window_size=None):
+    try:
+        if window_size == None:
+            window_size = int(len(time)/25)
+    except NameError:
+        raise NameError("If not providing a window_size, please make sure to define 'time'.")
+    return pd.Series(data).rolling(window=window_size).mean().tolist()
+
+def calc_noise(time, data, window_size=None, noise_type=None, degree=5):
+    """
+    Parameters
+    ----------
+    time : array-like.         Array of time points.
+    data : array-like.         Array of data points.
+    window_size: int, optional. Size of the moving average window for smoothing the data. Default is None.
+    noise_type (str, optional): Type of noise to calculate. If 'white' or 'w', calculates white noise level; otherwise, calculates noise level in chunks. Default is None.
+    degree (int, optional):     Degree of polynomial for fitting when noise_type is not 'white' or 'w'. Default is 5.         
+
+    Returns
+    ----------
+    - noise (array-like): Returns an array representing noise level over time.
+    """
+    data_smoothed = moving_average(data, time=time, window_size=window_size)
+    residuals = data - data_smoothed
+    
+    if noise_type.lower() in ['white', 'w']:
+        noise = np.std(residuals[~np.isnan(residuals)])
+        noise = np.full(len(time),noise)
+        return noise
+    else:
+        # Calculate the number of chunks of 20 data points
+        chunck_wid = 20
+        num_chunks = len(residuals) // chunck_wid
+
+        # For each chunck, calculate the std dev of the residuals.
+        std_devs = []
+        for i in range(num_chunks):
+            # Calculate the start and end indices of the current chunk
+            start_idx = i * chunck_wid
+            end_idx = start_idx + chunck_wid
+
+            # Extract the data points for the current chunk
+            chunk = residuals[start_idx:end_idx]
+
+            # Calculate the standard deviation of the chunk and append to the list
+            std_devs.append(np.std(chunk))
+
+        std_devs = np.repeat(std_devs, chunck_wid)
+
+        # Degree of the polynomial fit
+        degree = degree
+
+        # Perform polynomial fit
+        coefficients = np.polyfit(time[[~np.isnan(std_devs)]], std_devs[~np.isnan(std_devs)], degree)
+        polynomial = np.poly1d(coefficients)
+        noise = polynomial(time)
+        return noise    # returns a range of numbers
+
 def pythag(a,b):
+    """
+    Pythagoras's Theorem. This is mainly a test function.
+    """
     c = np.sqrt(a**2 + b**2)
     return c
 
