@@ -7,6 +7,9 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import PyFT as pyft
+import xarray as xr
+import cftime
 
 def calc_dt(time, plot=False, verbose=0):
     """
@@ -160,7 +163,7 @@ def moving_average(data, time=None, window_size=None):
         if window_size == None:
             window_size = int(len(time)/25)
     except NameError:
-        raise NameError("If not providing a window_size, please make sure to define 'time'.")
+        raise NameError("If not providing a window_size, please make sure to provide time_data using the 'time' option.")
     return pd.Series(data).rolling(window=window_size).mean().tolist()
 
 def calc_noise(time, data, window_size=None, noise_type=None, degree=5):
@@ -208,7 +211,7 @@ def calc_noise(time, data, window_size=None, noise_type=None, degree=5):
         degree = degree
 
         # Perform polynomial fit
-        coefficients = np.polyfit(time[[~np.isnan(std_devs)]], std_devs[~np.isnan(std_devs)], degree)
+        coefficients = np.polyfit(time[~np.isnan(std_devs)], std_devs[~np.isnan(std_devs)], degree)
         polynomial = np.poly1d(coefficients)
         noise = polynomial(time)
         return noise    # returns a range of numbers
@@ -220,6 +223,196 @@ def pythag(a,b):
     c = np.sqrt(a**2 + b**2)
     return c
 
+def process_df(data_path, time_column, column_of_interest, unc_column=None, calc_unc=False, verbose=0, detrend_type='linear'):
+    """
+    Process data from a CSV or netCDF file.
+
+    Parameters
+    ----------
+    data_path : str
+        Path to the data file.
+    time_column : str
+        Name of the column containing time values.
+    column_of_interest : str
+        Name of the column containing signal values.
+    unc_column : str, optional
+        Name of the column containing uncertainties.
+    calc_unc : bool, optional
+        Whether to calculate uncertainties.
+    verbose : int, optional
+        Verbosity level.
+    detrend_type : str, optional
+        Type of detrending to apply.
+
+    Returns
+    ----------
+    ds : xarray.Dataset
+        Processed data in an xarray Dataset.
+    """
+    from scipy import signal
+    
+    # Split the filename and extension
+    filename, extension = data_path.rsplit('.', 1)
+    
+    if extension not in ['csv', 'nc']:
+        raise ValueError(f"Unsupported file extension: {extension}. Currently only .csv or .nc are supported.")
+
+    if extension == 'csv':
+        # Read the CSV file into a DataFrame
+        data = pd.read_csv(data_path)
+
+        # Extract time and signal data, dropping NaN values
+        time = data[time_column].dropna()
+        signal_data = data[column_of_interest].dropna()
+
+        # Try to extract uncertainties, if not present, set them to 1
+        if calc_unc:
+            unc = pyft.calc_noise(time, signal_data, window_size=None, noise_type='w', degree=5)
+        else:
+            try:
+                unc = data[unc_column]
+            except KeyError:
+                if verbose > 0:
+                    print("No uncertainties detected. No weighting will be used.")
+                unc = np.ones(len(signal_data))
+
+        # Calculate weights based on uncertainties
+        weights = 1 / unc ** 2
+
+        # Remove linear trend from signal data
+        signal = signal.detrend(signal_data, type=detrend_type)
+
+        # Create the xarray Dataset
+        ds = xr.Dataset(
+            {
+                'signal': (['time'], signal),
+                'weights': (['time'], weights),
+            },
+            coords={
+                'time': time
+            }
+        )
+
+    elif extension == 'nc':
+        # Open the netCDF file
+        data = xr.open_dataset(data_path)
+        data = data.rename({'tos': 'signal'})
+
+        # Try to extract uncertainties, if not present, set them to 1
+        if calc_unc:
+            unc = pyft.calc_noise(data['time'], data['signal'], window_size=None, noise_type='w', degree=5)
+        else:
+            try:
+                unc = data[unc_column]
+            except KeyError:
+                if verbose > 0:
+                    print("No uncertainties detected. No weighting will be used.")
+                unc = np.ones(len(data['signal']))
+
+        # Calculate weights based on uncertainties
+        weights = 1 / unc ** 2
+
+        data['weights'] = weights
+
+        if 'signal' in data.coords:
+            data = data.reset_coords('signal', drop=True)
+
+        # Detrend the 'signal' variable
+        detrended_signal = signal.detrend(data['signal'], type=detrend_type)
+
+        # Reassign dimensions when reassigning
+        data['signal'] = (data['signal'].dims, detrended_signal)
+
+        ds = data
+
+        # Check if time values are numeric, if not, change them to be numeric
+        time_dtype = ds['time'].dtype
+        if not np.issubdtype(time_dtype, np.number):
+            time_data = ds['time']
+            start_time = ds['time'][0]
+
+            year = start_time.dt.year.values
+            month = start_time.dt.month.values
+            day = start_time.dt.day.values
+            hour = start_time.dt.hour.values 
+            minute = start_time.dt.minute.values
+            second = start_time.dt.second.values
+
+            # Get the numerical representation
+            time_num = cftime.date2num(time_data, units=f'common_years since {year}-{month}-{day} {hour}:{minute}:{second}', calendar='noleap')
+            ds = ds.assign_coords(time=time_num)
+
+    return ds
+
+
+def conversion_factor(from_unit, to_unit):
+    """
+    Convert a time value from one unit to another.
+
+    Parameters
+    ----------
+    value : float
+        The numeric value to be converted.
+    from_unit : str
+        The unit of the input value.
+    to_unit : str
+        The unit to convert the input value to.
+
+    Returns
+    ----------
+    converted_value : float
+        The converted value in the target unit.
+    """
+    from collections import defaultdict
+    
+    # Define conversion factors for each unit to seconds
+    conversion_factors_to_seconds = {
+        'ns': 1 / 1e9,
+        'ms': 1 / 1e3,
+        's': 1,
+        'min': 60,
+        'hour': 60 * 60,
+        'day': 60 * 60 * 24,
+        'week': 60 * 60 * 24 * 7,
+        'month': 60 * 60 * 24 * 365.25/12,  # Approximate month duration (30.4375 days)
+        'common_month': 60 * 60 * 24 * 365/12,   # Approximate month duration (30.4167 days)
+        'year': 60 * 60 * 24 * 365.25,   # Approximate year duration (365.25 days)
+        'common_year': 60 * 60 * 24 * 365   # Exact year duration (365 days)
+    }
+
+    # Define unit aliases in groups for clarity
+    unit_groups = {
+        'ns': ['ns', 'nanosecond', 'nanoseconds', 'nano'],
+        'ms': ['ms', 'millisecond', 'milliseconds', 'milli'],
+        's': ['s', 'second', 'seconds', 'sec'],
+        'min': ['min', 'minute', 'minutes', 'mins'],
+        'hour': ['h', 'hr', 'hour', 'hours', 'hrs'],
+        'day': ['day', 'days', 'd'],
+        'week': ['week', 'weeks', 'w', 'wks', 'wk'],
+        'month': ['month', 'months', 'mon', 'mo'],
+        'common_month': ['common month', 'common_month', 'cmonth', 'cmonths', 'cmon', 'cmons', 'cmo'],
+        'year': ['year', 'years', 'y', 'yr', 'yrs'],
+        'common_year': ['common year', 'common_year', 'cyr', 'cyrs']
+    }
+
+    # Create the unit_aliases dictionary using defaultdict
+    unit_aliases = defaultdict(lambda: None, 
+                               {alias: canonical for canonical, aliases in unit_groups.items() for alias in aliases})
+
+    # Normalize the unit names
+    from_unit_normalized = unit_aliases[from_unit]
+    to_unit_normalized = unit_aliases[to_unit]
+
+    # Handle case where the unit might not be found
+    if from_unit_normalized is None:
+        raise ValueError(f"Unknown unit: {from_unit}")
+    if to_unit_normalized is None:
+        raise ValueError(f"Unknown unit: {to_unit}")
+
+    # Convert from seconds to the target unit using the normalized unit
+    conversion_factor = conversion_factors_to_seconds[from_unit_normalized] / conversion_factors_to_seconds[to_unit_normalized]
+
+    return conversion_factor
 
 # In[ ]:
 
