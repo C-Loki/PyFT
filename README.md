@@ -1,8 +1,6 @@
 # PyFT Power Spectrum Function
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/C-Loki/PyFT/ci.yml)](https://github.com/C-Loki/PyFT/actions)
-[![Coverage Status](https://img.shields.io/codecov/c/github/C-Loki/PyFT)](https://codecov.io/gh/C-Loki/PyFT)
-[![License](https://img.shields.io/github/license/C-Loki/PyFT)](LICENSE)
+[![License](https://img.shields.io/github/license/C-Loki/PyFT)](https://github.com/C-Loki/PyFT/blob/main/LICENSE)
 [![Python Version](https://img.shields.io/badge/python-3.x-blue.svg)](https://www.python.org/)
 
 ## Short Description
