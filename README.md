@@ -1,7 +1,29 @@
 # PyFT Power Spectrum Function
 
+[![Build Status](https://img.shields.io/github/actions/workflow/status/C-Loki/PyFT/ci.yml)](https://github.com/C-Loki/PyFT/actions)
+[![Coverage Status](https://img.shields.io/codecov/c/github/C-Loki/PyFT)](https://codecov.io/gh/C-Loki/PyFT)
+[![License](https://img.shields.io/github/license/C-Loki/PyFT)](LICENSE)
+[![Python Version](https://img.shields.io/badge/python-3.x-blue.svg)](https://www.python.org/)
+
 ## Short Description
-The PyFT power_spectrum function is a Python tool designed to compute and plot the power spectrum of time series data. It uses Fourier transform techniques followed by Frandsen et al. 1995 Sect 4.2 to analyze the frequency components present in the data. For further details, refer to [Frandsen et al. 1995](link_to_paper).
+The PyFT power_spectrum function is a Python tool designed to compute and plot the power spectrum of time series data. It uses Fourier transform techniques followed by Frandsen et al. 1995 Sect 4.2 to analyze the frequency components present in the data. For further details, refer to [Frandsen et al. 1995](https://ui.adsabs.harvard.edu/abs/1995A%26A...301..123F/abstract).
+
+# Features
+- Reads time series data from a CSV file.
+- Detrends the data to remove any linear trends.
+- Computes the Fourier transform of the data.
+- Calculates and plots the power spectral density.
+- Provides recommended frequency intervals for analysis.
+- Computes the spectral window at a given frequency.
+
+# Requirements
+pandas
+numpy
+scipy
+xarray
+matplotlib
+cftime
+
 
 ## How to Run
 ### Input Data
